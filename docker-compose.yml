@@ -1,15 +1,17 @@
 services:
   api:
     image: ghcr.io/saleor/saleor:3.23
+    # host port 8000 is already used by medusa_storefront, so map to 8001
     ports:
-      - 8000:8000
+      - 8001:8000
     restart: unless-stopped
     networks:
       - saleor-backend-tier
+      # externally managed PostgreSQL 18 lives on postgres-net (hostname: postgres)
+      - postgres-net
     stdin_open: true
     tty: true
     depends_on:
-      - db
       - cache
       - jaeger
     volumes:
@@ -19,33 +21,32 @@ services:
       - common.env
       - backend.env
     environment:
-      - DASHBOARD_URL=http://localhost:9000/
+      - DASHBOARD_URL=http://localhost:9001/
       - ALLOWED_HOSTS=localhost,127.0.0.1,api
 
   dashboard:
     image: ghcr.io/saleor/saleor-dashboard:3.23
+    # host port 9000 is already used by medusa_backend, so map to 9001
     ports:
-      - 9000:80
+      - 9001:80
     restart: unless-stopped
-
-  db:
-    image: library/postgres:15-alpine
-    ports:
-      - 5432:5432
-    restart: unless-stopped
+    environment:
+      # injected by the image's entrypoint into the static bundle at startup;
+      # default points to port 8000, which is taken by another service here
+      - API_URL=http://localhost:8001/graphql/
+    # attach to the existing backend network so Compose does not create a
+    # project-prefixed default network
     networks:
       - saleor-backend-tier
-    volumes:
-      - saleor-db:/var/lib/postgresql/data
-      - ./replica_user.sql:/docker-entrypoint-initdb.d/replica_user.sql:ro,z
-    environment:
-      - POSTGRES_USER=saleor
-      - POSTGRES_PASSWORD=saleor
+
+  # NOTE: the upstream `db` service (postgres:15-alpine) was removed on purpose.
+  # PostgreSQL 18 is managed externally (container: infrastructure-postgres-1,
+  # database: saleor) and is reached via the external network postgres-net.
 
   cache:
     image: valkey/valkey:8.1-alpine
-    ports:
-      - 6379:6379
+    # no published port: host 6379 is used by medusa_redis; cache is only
+    # accessed by api/worker over the saleor-backend-tier network
     restart: unless-stopped
     networks:
       - saleor-backend-tier
@@ -58,6 +59,8 @@ services:
     restart: unless-stopped
     networks:
       - saleor-backend-tier
+      # worker runs Celery tasks that need the externally managed PostgreSQL
+      - postgres-net
     env_file:
       - common.env
       - backend.env
@@ -91,12 +94,12 @@ services:
       - saleor-backend-tier
 
 volumes:
-  saleor-db:
-    driver: local
   saleor-cache:
     driver: local
   saleor-media:
 
 networks:
   saleor-backend-tier:
-    driver: bridge
+    external: true
+  postgres-net:
+    external: true
