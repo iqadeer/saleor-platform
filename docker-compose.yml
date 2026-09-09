@@ -23,6 +23,7 @@ services:
     environment:
       - DASHBOARD_URL=http://localhost:9001/
       - ALLOWED_HOSTS=localhost,127.0.0.1,api
+      - PUBLIC_URL=http://localhost:8001/
 
   dashboard:
     image: ghcr.io/saleor/saleor-dashboard:3.23
