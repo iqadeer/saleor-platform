@@ -65,6 +65,12 @@ services:
     env_file:
       - common.env
       - backend.env
+    environment:
+      # Must match the api service: celery tasks (e.g. install_app_task,
+      # JWT signing) use get_domain(), which prefers PUBLIC_URL over the
+      # (stale) django_site domain. Without it, app installs send apps a
+      # wrong Saleor URL (http://localhost:8000/graphql/) and fail.
+      - PUBLIC_URL=http://localhost:8001/
     depends_on:
       - cache
       - mailpit
