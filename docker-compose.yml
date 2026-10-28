@@ -56,7 +56,12 @@ services:
 
   worker:
     image: ghcr.io/saleor/saleor:3.23
-    command: celery -A saleor --app=saleor.celeryconf:app worker --loglevel=info -B
+    # --scheduler selects Saleor's patched beat scheduler (see saleor/schedulers/schedulers.py).
+    # Without it, `worker -B` falls back to vanilla celery.beat:PersistentScheduler, whose
+    # tick() deadlocks head-of-heap: Saleor's state-dependent schedules (e.g. promotion
+    # toggle/search updates) return is_due=False once their dirty flags clear, and the whole
+    # beat stalls silently (upstream: saleor/saleor#10185, saleor/saleor#15892).
+    command: celery -A saleor --app=saleor.celeryconf:app worker --loglevel=info -B --scheduler saleor.schedulers.schedulers.PersistentScheduler
     restart: unless-stopped
     networks:
       - saleor-backend-tier
