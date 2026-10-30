@@ -1,0 +1,206 @@
+# =============================================================================
+# Saleor platform - production-style stack (base file)
+#
+# This is a NEW file. The original working `docker-compose.yml` is untouched
+# and remains the local development stack.
+#
+# Usage (from this directory, with `.env` prepared - see below):
+#   Base only (no reverse proxy, no published app ports):
+#     docker compose --env-file .env -f docker-compose.prod.yml up -d
+#
+#   Local mode with Traefik (mkcert, ports 8080/8443):
+#     docker compose --env-file .env -f docker-compose.prod.yml \
+#       -f docker-compose.traefik.local.yml up -d
+#
+#   Production mode with Traefik (Let's Encrypt, ports 80/443):
+#     docker compose --env-file .env -f docker-compose.prod.yml \
+#       -f docker-compose.traefik.prod.yml up -d
+#
+# Environment:
+#   Copy env/local.env.example or env/prod.env.example to `.env`
+#   (`.env` is gitignored) and fill in the secrets. Required variables are
+#   marked :? below so `docker compose config` fails loudly when missing.
+#   See docs/production-traefik.md for details.
+#
+# PostgreSQL 18 is EXTERNALLY managed (container infrastructure-postgres-1,
+# database `saleor`, host `postgres` on the external network `postgres-net`).
+# No database service is defined in this file.
+# =============================================================================
+
+# Pin the project name explicitly so container/volume names stay
+# `saleor-platform-*` / `saleor-platform_saleor-*` (same as the original
+# stack) regardless of the directory the files run from.
+name: saleor-platform
+
+services:
+  api:
+    image: admincareout/kidl:saleor-api-1.0
+    restart: unless-stopped
+    # No published ports: traffic enters through Traefik (api.childnest.co.uk)
+    # or directly on the Docker networks during internal testing.
+    networks:
+      - saleor-proxy-net      # Traefik-to-app routing network
+      - saleor-backend-tier   # existing shared backend network
+      - postgres-net          # externally managed PostgreSQL 18
+    stdin_open: true
+    tty: true
+    volumes:
+      - saleor-media:/app/media      # shared media volume (worker + api)
+      # RSA signing key: place the PEM at .secrets/saleor_rsa.pem (gitignored)
+      - ./.secrets/saleor_rsa.pem:/app/saleor_rsa.pem:ro
+    environment:
+      # --- secrets (from .env; required) ---
+      - SECRET_KEY=${SALEOR_SECRET_KEY:?set in .env}
+      # Saleor reads the RSA key from a file (avoids PEM in process env).
+      - RSA_PRIVATE_KEY_FILE=/app/saleor_rsa.pem
+      - DATABASE_URL=${DATABASE_URL:?set in .env}
+      # --- cache / message broker (Valkey, internal network only) ---
+      - CACHE_URL=${CACHE_URL:-redis://cache:6379/0}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://cache:6379/1}
+      # --- public URLs (mode-specific, from .env) ---
+      # worker MUST see the identical value (get_domain() prefers PUBLIC_URL;
+      # celery tasks build app-install URLs and sign app JWTs from it).
+      - PUBLIC_URL=${PUBLIC_URL:?see env/*.env.example}
+      - DASHBOARD_URL=${DASHBOARD_URL:?see env/*.env.example}
+      # --- host / client allowlists (from .env; mode-specific) ---
+      - ALLOWED_HOSTS=${SALEOR_ALLOWED_HOSTS:?see env/*.env.example}
+      - ALLOWED_CLIENT_HOSTS=${SALEOR_ALLOWED_CLIENT_HOSTS:?set in .env}
+      - CSRF_TRUSTED_ORIGINS=${SALEOR_CSRF_TRUSTED_ORIGINS:-}
+      # --- outgoing mail (Mailpit; internal only) ---
+      - EMAIL_URL=${EMAIL_URL:-smtp://mailpit:1025}
+      - DEFAULT_FROM_EMAIL=${DEFAULT_FROM_EMAIL:?set in .env}
+      # --- tracing (temporary Jaeger) ---
+      # OTel endpoint defaults to http://jaeger:4317 via env/*.env.example
+      - OTEL_SERVICE_NAME=saleor
+      - OTEL_TRACES_EXPORTER=${OTEL_TRACES_EXPORTER:-otlp}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      # HTTP_IP_FILTER: True is the recommended production value; the local
+      # example sets False for local app development (see dev common.env).
+      - HTTP_IP_FILTER_ENABLED=${HTTP_IP_FILTER_ENABLED:-True}
+      - HTTP_IP_FILTER_ALLOW_LOOPBACK_IPS=${HTTP_IP_FILTER_ALLOW_LOOPBACK_IPS}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - |
+          python -c "import urllib.request as u, sys
+          r = u.urlopen('http://127.0.0.1:8000/graphql/')
+          sys.exit(0 if r.status==200 else 1)"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    depends_on:
+      cache:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+
+  dashboard:
+    image: admincareout/kidl:saleor-dashboard-1.0
+    restart: unless-stopped
+    environment:
+      # Injected by the image's entrypoint into the static bundle at startup.
+      # Must be the PUBLIC graphql URL, not an internal one.
+      - API_URL=${DASHBOARD_API_URL:?see env/*.env.example}
+    networks:
+      - saleor-proxy-net
+      - saleor-backend-tier
+    depends_on:
+      - api
+
+  # Worker: image and command MUST stay identical to the working setup.
+  # The patched beat scheduler flag is required (saleor/saleor#10185,#15892).
+  worker:
+    image: admincareout/kidl:saleor-api-1.0
+    # pi-lens-ignore: line-length
+    command: celery -A saleor --app=saleor.celeryconf:app worker --loglevel=info -B --scheduler saleor.schedulers.schedulers.PersistentScheduler
+    restart: unless-stopped
+    networks:
+      - saleor-proxy-net
+      - saleor-backend-tier
+      - postgres-net
+    environment:
+      - SECRET_KEY=${SALEOR_SECRET_KEY:?set in .env}
+      - RSA_PRIVATE_KEY_FILE=/app/saleor_rsa.pem
+      - DATABASE_URL=${DATABASE_URL:?set in .env}
+      - CACHE_URL=${CACHE_URL:-redis://cache:6379/0}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://cache:6379/1}
+      # MUST match api exactly (see note on the api service above).
+      - PUBLIC_URL=${PUBLIC_URL:?see env/*.env.example}
+      - ALLOWED_HOSTS=${SALEOR_ALLOWED_HOSTS:?see env/*.env.example}
+      - ALLOWED_CLIENT_HOSTS=${SALEOR_ALLOWED_CLIENT_HOSTS:?set in .env}
+      - CSRF_TRUSTED_ORIGINS=${SALEOR_CSRF_TRUSTED_ORIGINS:-}
+      - EMAIL_URL=${EMAIL_URL:-smtp://mailpit:1025}
+      - DEFAULT_FROM_EMAIL=${DEFAULT_FROM_EMAIL:?set in .env}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME_WORKER:-saleor-worker}
+      - OTEL_TRACES_EXPORTER=${OTEL_TRACES_EXPORTER:-otlp}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - HTTP_IP_FILTER_ENABLED=${HTTP_IP_FILTER_ENABLED:-True}
+      - HTTP_IP_FILTER_ALLOW_LOOPBACK_IPS=${HTTP_IP_FILTER_ALLOW_LOOPBACK_IPS}
+    # No healthcheck: celery beat has no HTTP probe; observe in logs.
+    volumes:
+      - saleor-media:/app/media
+      - ./.secrets/saleor_rsa.pem:/app/saleor_rsa.pem:ro
+    depends_on:
+      cache:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+
+  cache:
+    image: valkey/valkey:8.1-alpine
+    # No published port: only api/worker reach cache over Docker networks.
+    # No password in this phase (same as dev, private network). How to add
+    # auth later: docs/production-traefik.md -> "Valkey".
+    restart: unless-stopped
+    networks:
+      - saleor-backend-tier
+    volumes:
+      # persists broker queues/cache data across restarts
+      - saleor-cache:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # --- temporary services (kept per scope; not routed by Traefik) ---
+
+  jaeger:
+    # TEMPORARY tracing collector. No ports published here; the local overlay
+    # binds the UI to 127.0.0.1 only. To remove later: delete the service and
+    # the OTEL_* vars (Saleor tolerates an unreachable exporter).
+    image: jaegertracing/jaeger
+    restart: unless-stopped
+    networks:
+      - saleor-backend-tier
+    volumes:
+      - type: tmpfs
+        target: /tmp
+
+  mailpit:
+    # TEMPORARY local SMTP sink for EMAIL_URL. Web UI (8025) is not exposed
+    # by Traefik and not published here; add a temporary 127.0.0.1 mapping in
+    # the local overlay if you need it.
+    image: axllent/mailpit
+    restart: unless-stopped
+    networks:
+      - saleor-backend-tier
+
+volumes:
+  saleor-cache:
+    driver: local
+  saleor-media:
+
+networks:
+  # Existing, externally created networks - referenced, never created here.
+  saleor-backend-tier:
+    external: true
+  postgres-net:
+    external: true
+  # Dedicated Traefik-to-app routing network, owned by this project. A
+  # separate network lets Traefik (and later its own repo) reach the apps
+  # without the apps having to join a shared default project network.
+  saleor-proxy-net:
+    driver: bridge

@@ -1,0 +1,70 @@
+# =============================================================================
+# Traefik static configuration - PRODUCTION mode (Let's Encrypt, 80/443)
+#
+# Loaded by: docker-compose.traefik.prod.yml
+#
+# DO NOT USE THIS FILE FOR LOCAL VALIDATION. It declares the production
+# Let's Encrypt ACME server and public ports; it is only correct on a host
+# with public DNS for the childnest.co.uk domains. Local validation uses
+# traefik/static/local/traefik.yaml.
+#
+# The ACME email is intentionally NOT in this file: the compose overlay
+# passes it as --providers.acme.email from the .env (ACME_EMAIL).
+# =============================================================================
+
+log:
+  level: INFO
+
+accessLog: {}
+
+api:
+  dashboard: true
+  insecure: false
+
+entryPoints:
+  traefik:
+    address: ""   # disable default dashboard entry point (see local file)
+  web:
+    address: :80
+    http:
+      # Plain HTTP -> HTTPS for everything. The ACME HTTP-01 challenge router
+      # (auto-created by Traefik on this entry point) has higher routing
+      # priority, so /.well-known/acme-challenge/ requests are never
+      # redirected and let validation succeed.
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    address: :443
+
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+  docker:
+    # Production: real unix socket on a Linux host, mounted :ro in compose.
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+    network: saleor-proxy-net
+  acme:
+    # Email supplied via CLI flag (see compose overlay).
+    # Persistent storage (named volume `traefik-le` in compose).
+    storage: /letsencrypt/acme.json
+    # PRODUCTION Let's Encrypt endpoint. For a future test run against a
+    # domain you control you may temporarily switch to
+    # https://acme-staging-v02.api.letsencrypt.org/directory - the staging
+    # certs are not trusted, which makes mistakes safe.
+    # Do not point local validation at either endpoint.
+    caServer: "https://acme-v02.api.letsencrypt.org/directory"
+    httpChallenge:
+      entryPoint: web
+    # Explicit requested certificates. With `domains`, Traefik requests the
+    # certificate on start (then renews proactively) instead of on first
+    # request, so a missing domain fails fast at startup and is visible in
+    # the dashboard/logs.
+    domains:
+      - main: shop.childnest.co.uk
+      - main: dashboard.childnest.co.uk
+      - main: api.childnest.co.uk
+      - main: store-fe.childnest.co.uk

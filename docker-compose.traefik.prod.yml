@@ -1,0 +1,98 @@
+# =============================================================================
+# Traefik PRODUCTION mode overlay (Let's Encrypt ACME, public ports 80/443)
+#
+# Compose with the base file:
+#   docker compose --env-file .env -f docker-compose.prod.yml \
+#     -f docker-compose.traefik.prod.yml up -d
+#
+# Requires env file: .env from env/prod.env.example (ACME_EMAIL set).
+#
+# IMPORTANT - DO NOT VALIDATE THIS MODE LOCALLY:
+#   This overlay is only correct on a host where
+#     * the four childnest.co.uk domains resolve publicly to this host,
+#     * ports 80/443 are free,
+#     * the real Docker socket can be mounted read-only (Linux host or a
+#       setup where the unix socket is a true socket file).
+#   Bringing this up locally against the mkcert setup will point Let's
+#   Encrypt's validation at the wrong endpoints and can burn ACME rate
+#   limits. Local validation uses docker-compose.traefik.local.yml only.
+# =============================================================================
+
+services:
+  traefik:
+    image: traefik:3.7.17          # explicitly pinned; never use `latest`
+    restart: unless-stopped
+    # Static config: traefik/static/prod/traefik.yaml (entry points 80/443,
+    # ACME provider with caServer, docker provider). The ACME email is
+    # supplied via CLI flag from .env so no email/secret is committed.
+    command:
+      - --providers.acme.email=${ACME_EMAIL:?ACME_EMAIL required in .env}
+    ports:
+      - "80:80"    # ACME HTTP-01 challenge + redirect to HTTPS
+      - "443:443"
+    volumes:
+      - ./traefik/static/prod/traefik.yaml:/etc/traefik/traefik.yaml:ro
+      - ./traefik/dynamic/prod:/etc/traefik/dynamic:ro
+      # ACME certificate/key persistence. Traefik (running as root in the
+      # image) creates acme.json with 0600 on first run; verify with:
+      #   docker compose exec traefik stat -c '%a %U' /
+      #       letsencrypt/acme.json
+      - traefik-le:/letsencrypt
+      # Real socket mount: only valid where the path is a genuine unix
+      # socket (e.g. a Linux host). On Docker Desktop for Windows this is
+      # NOT a mountable socket - use local mode there instead.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      # Dashboard behind TLS on its own hostname, never on a raw port.
+      traefik.enable: "true"
+      traefik.docker.network: saleor-proxy-net
+      traefik.http.routers.traefik-dashboard.rule: >-
+        Host(`traefik.childnest.co.uk`)
+      traefik.http.routers.traefik-dashboard.entrypoints: websecure
+      traefik.http.routers.traefik-dashboard.tls: "true"
+      traefik.http.routers.traefik-dashboard.service: api@internal
+      traefik.http.routers.traefik-dashboard.middlewares: secure-headers
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - saleor-proxy-net
+
+  # Saleor API: https://api.childnest.co.uk (no :443 - TLS on default port)
+  api:
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: saleor-proxy-net
+      traefik.http.routers.saleor-api.rule: Host(`api.childnest.co.uk`)
+      traefik.http.routers.saleor-api.entrypoints: websecure
+      traefik.http.routers.saleor-api.tls: "true"
+      traefik.http.routers.saleor-api.service: saleor-api
+      traefik.http.routers.saleor-api.middlewares: secure-headers
+      traefik.http.services.saleor-api.loadbalancer.server.port: "8000"
+      traefik.http.services.saleor-api.loadbalancer.healthcheck.path: /graphql/
+      traefik.http.services.saleor-api.loadbalancer.healthcheck.port: "8000"
+
+  dashboard:
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: saleor-proxy-net
+      traefik.http.routers.saleor-dashboard.rule: >-
+        Host(`dashboard.childnest.co.uk`)
+      traefik.http.routers.saleor-dashboard.entrypoints: websecure
+      traefik.http.routers.saleor-dashboard.tls: "true"
+      traefik.http.routers.saleor-dashboard.service: saleor-dashboard
+      traefik.http.routers.saleor-dashboard.middlewares: secure-headers
+      traefik.http.services.saleor-dashboard.loadbalancer.server.port: "80"
+
+  # Storefront routing: same prepared-but-inactive plan as the local
+  # overlay (see docker-compose.traefik.local.yml and docs).
+
+  # Jaeger/Mailpit stay unpublishered (no ports) in production mode.
+
+volumes:
+  # Named volume so ACME state persists independent of the filesystem.
+  traefik-le:
+    driver: local

@@ -1,0 +1,46 @@
+# =============================================================================
+# Traefik DYNAMIC configuration - LOCAL mode (file provider)
+#
+# Loaded from the directory /etc/traefik/dynamic (mounted read-only from
+# traefik/dynamic/local by docker-compose.traefik.local.yml).
+#
+# TLS:
+#   One mkcert certificate covering ALL FOUR local domains:
+#     - shop.childnest.co.uk
+#     - dashboard.childnest.co.uk
+#     - api.childnest.co.uk
+#     - store-fe.childnest.co.uk
+#   It is registered both as an SNI-selected certificate AND as the store's
+#   default certificate, so even an unknown SNI (or IP access) on :8443
+#   still presents the local CA-signed cert instead of failing the handshake.
+#
+#   Files are produced by `mkcert` on the Windows host (CAROOT is the user's
+#   trusted local CA directory) and are GIT-IGNORED - never in the repo.
+#   Regenerate (only after the installed local CA changes):
+#     mkcert -cert-file traefik/certs/childnest-local.pem \
+#            -key-file traefik/certs/childnest-local-key.pem \
+#            shop.childnest.co.uk dashboard.childnest.co.uk \
+#            api.childnest.co.uk store-fe.childnest.co.uk
+# =============================================================================
+
+tls:
+  certificates:
+    - certFile: /etc/traefik/certs/childnest-local.pem
+      keyFile: /etc/traefik/certs/childnest-local-key.pem
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /etc/traefik/certs/childnest-local.pem
+        keyFile: /etc/traefik/certs/childnest-local-key.pem
+
+http:
+  middlewares:
+    # Baseline response hardening. Local-friendly STS window (1 hour).
+    secure-headers:
+      headers:
+        stsSeconds: 3600
+        stsIncludeSubdomains: false
+        frameDeny: true
+        customResponseHeaders:
+          X-Content-Type-Options: nosniff
+          Referrer-Policy: strict-origin-when-cross-origin

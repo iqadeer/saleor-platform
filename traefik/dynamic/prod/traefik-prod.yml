@@ -1,0 +1,19 @@
+# =============================================================================
+# Traefik DYNAMIC configuration - PRODUCTION mode (file provider)
+#
+# In production the TLS certificates come from the ACME provider, so no
+# certificate is defined here. This file only carries shared middleware.
+# =============================================================================
+
+http:
+  middlewares:
+    # Production-hardened response headers (full-year HSTS).
+    secure-headers:
+      headers:
+        stsSeconds: 31536000
+        stsIncludeSubdomains: false
+        stsPreload: false
+        frameDeny: true
+        customResponseHeaders:
+          X-Content-Type-Options: nosniff
+          Referrer-Policy: strict-origin-when-cross-origin

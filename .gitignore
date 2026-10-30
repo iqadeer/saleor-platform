@@ -1,1 +1,12 @@
 .idea
+
+# --- Secrets and locally generated TLS material (NEVER commit) ---
+# Environment templates (env/*.env.example) are committed; real values go
+# into .env, which lives only on the machine.
+.env
+.secrets/
+# mkcert-generated domain certificate + private key (local Traefik only)
+traefik/certs/*.pem
+traefik/certs/*.key
+# ACME state (production Traefik host only, never in git)
+traefik/letsencrypt/
