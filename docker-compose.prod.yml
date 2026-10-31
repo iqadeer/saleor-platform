@@ -38,6 +38,8 @@ services:
     restart: unless-stopped
     # No published ports: traffic enters through Traefik (api.childnest.co.uk)
     # or directly on the Docker networks during internal testing.
+    ports:
+      - 8001:8000
     networks:
       - saleor-proxy-net      # Traefik-to-app routing network
       - saleor-backend-tier   # existing shared backend network
@@ -98,6 +100,8 @@ services:
   dashboard:
     image: admincareout/kidl:saleor-dashboard-1.0
     restart: unless-stopped
+    ports:
+      - 9001:80
     environment:
       # Injected by the image's entrypoint into the static bundle at startup.
       # Must be the PUBLIC graphql URL, not an internal one.
@@ -173,6 +177,10 @@ services:
     # the OTEL_* vars (Saleor tolerates an unreachable exporter).
     image: jaegertracing/jaeger
     restart: unless-stopped
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
     networks:
       - saleor-backend-tier
     volumes:
@@ -184,6 +192,9 @@ services:
     # by Traefik and not published here; add a temporary 127.0.0.1 mapping in
     # the local overlay if you need it.
     image: axllent/mailpit
+    ports:
+      - 1025:1025 # smtp server
+      - 8025:8025 # web ui. Visit http://localhost:8025/ to check emails
     restart: unless-stopped
     networks:
       - saleor-backend-tier
@@ -204,3 +215,9 @@ networks:
   # without the apps having to join a shared default project network.
   saleor-proxy-net:
     driver: bridge
+    # Pin the daemon-level network name (no project prefix). Traefik's
+    # docker provider matches `traefik.docker.network` and the static
+    # `providers.docker.network` against the daemon name verbatim, so a
+    # prefixed name (saleor-platform_saleor-proxy-net) would silently
+    # disable all routing.
+    name: saleor-proxy-net
