@@ -1,5 +1,5 @@
 # =============================================================================
-# Traefik static configuration - LOCAL mode (mkcert, ports 8080/8443)
+# Traefik static configuration - LOCAL mode (mkcert, ports 80/443)
 #
 # Loaded by: docker-compose.traefik.local.yml
 # Traefik version pinned in compose: 3.7.17
@@ -18,12 +18,12 @@ api:
   insecure: false
 
 entryPoints:
-  # The api's default "traefik" entry point would also claim port 8080 and
+  # The api's default "traefik" entry point would also claim port 80 and
   # collide with `web` below - disable it; the dashboard is routed manually.
   traefik:
     address: ""
   web:
-    address: :8080
+    address: :80
     http:
       # Redirect ALL plain HTTP to HTTPS across the board.
       redirections:
@@ -32,7 +32,7 @@ entryPoints:
           scheme: https
           permanent: true
   websecure:
-    address: :8443
+    address: :443
 
 providers:
   # Dynamic config: TLS certificate (mkcert, all four domains) plus the

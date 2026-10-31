@@ -1,5 +1,5 @@
 # =============================================================================
-# Traefik LOCAL mode overlay (mkcert certificates, ports 8080/8443)
+# Traefik LOCAL mode overlay (mkcert, ports 127.0.0.1:80/443)
 #
 # Compose with the base file:
 #   docker compose --env-file .env -f docker-compose.prod.yml \
@@ -16,8 +16,8 @@
 #      traefik/host-services/ for the helper that is tested on this machine).
 #
 # Resulting local URLs (https, via hosts-file resolution):
-#   https://api.childnest.co.uk:8443/
-#   https://dashboard.childnest.co.uk:8443/
+#   https://api.childnest.co.uk/
+#   https://dashboard.childnest.co.uk/
 #   (shop.childnest.co.uk / store-fe.childnest.co.uk route only after the
 #    storefront service exists - see docs)
 # =============================================================================
@@ -34,8 +34,8 @@ services:
       # Loopback-bound on purpose: local mode is driven through the
       # hosts-file domains at 127.0.0.1. Nothing else on the host should
       # reach these ports.
-      - "127.0.0.1:8080:8080"
-      - "127.0.0.1:8443:8443"
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:443:443"
     volumes:
       - ./traefik/static/local/traefik.yaml:/etc/traefik/traefik.yaml:ro
       - ./traefik/dynamic/local:/etc/traefik/dynamic:ro

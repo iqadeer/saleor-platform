@@ -51,8 +51,20 @@ import socket
 import threading
 
 LHOST = "127.0.0.1"
-LPORT = int(os.environ.get("DOCKER_BRIDGE_PORT", "23750"))
+try:
+    LPORT = int(os.environ.get("DOCKER_BRIDGE_PORT", "23750"))
+except ValueError as exc:  # pragma: no cover - operator error
+    raise SystemExit(
+        f"DOCKER_BRIDGE_PORT must be a number, got "
+        f"{os.environ.get('DOCKER_BRIDGE_PORT')!r}") from exc
 DOCKER_SOCK = "/var/run/docker.sock"
+
+
+if not hasattr(socket, "AF_UNIX"):  # POSIX-only constant
+    raise SystemExit(
+        "unix sockets required: run this bridge inside WSL/Linux, not on "
+        "a native Windows Python")
+AF_UNIX: int = socket.AF_UNIX  # pyright: ignore[reportAttributeAccessIssue]
 
 
 def pipe(src, dst):
@@ -80,7 +92,7 @@ def main():
     while True:
         client, _ = srv.accept()
         try:
-            unix_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            unix_sock = socket.socket(AF_UNIX, socket.SOCK_STREAM)
             unix_sock.connect(DOCKER_SOCK)
         except OSError:
             client.close()

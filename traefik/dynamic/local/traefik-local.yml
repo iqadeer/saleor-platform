@@ -11,7 +11,7 @@
 #     - api.childnest.co.uk
 #     - store-fe.childnest.co.uk
 #   It is registered both as an SNI-selected certificate AND as the store's
-#   default certificate, so even an unknown SNI (or IP access) on :8443
+#   default certificate, so even an unknown SNI (or IP access) on :443
 #   still presents the local CA-signed cert instead of failing the handshake.
 #
 #   Files are produced by `mkcert` on the Windows host (CAROOT is the user's

@@ -10,9 +10,9 @@ stack. **Nothing here has been deployed; the original `docker-compose.yml`
 |---|---|
 | `docker-compose.yml` | **Original dev stack — unchanged.** |
 | `docker-compose.prod.yml` | Base production-style stack: `api`, `worker`, `dashboard`, `cache` (Valkey), `jaeger` (temporary), `mailpit` (temporary). No Traefik, **no published application ports**. |
-| `docker-compose.traefik.local.yml` | Overlay: Traefik **local** mode (mkcert, 127.0.0.1:8080/8443), route labels for the two live domains, Jaeger loopback ports. |
+| `docker-compose.traefik.local.yml` | Overlay: Traefik **local** mode (mkcert, 127.0.0.1:80/443), route labels for the two live domains, Jaeger loopback ports. |
 | `docker-compose.traefik.prod.yml` | Overlay: Traefik **production** mode (Let's Encrypt ACME HTTP-01, public 80/443), same route labels. |
-| `traefik/static/local/traefik.yaml` | Traefik static config, local mode (ports 8080/8443, HTTP→HTTPS redirect, file + docker providers, dashboard off-port). |
+| `traefik/static/local/traefik.yaml` | Traefik static config, local mode (ports 80/443 on 127.0.0.1, HTTP→HTTPS redirect, file + docker providers, dashboard off-port). |
 | `traefik/static/prod/traefik.yaml` | Traefik static config, production mode (80/443, ACME provider, `domains:` request list, unix socket endpoint). |
 | `traefik/dynamic/local/traefik-local.yml` | Dynamic file provider: mkcert TLS (default + SNI cert) and `secure-headers` middleware. |
 | `traefik/dynamic/prod/traefik-prod.yml` | Dynamic file provider, production: `secure-headers` with 1-year HSTS. Certs come from ACME, not files. |
@@ -76,10 +76,10 @@ Expected working URLs in local mode (mkcert root CA is already trusted in
 your store, so browsers accept the certs):
 
 ```
-https://api.childnest.co.uk:8443/graphql/
-https://dashboard.childnest.co.uk:8443/
-https://shop.childnest.co.uk:8443/          (only once storefront exists)
-https://store-fe.childnest.co.uk:8443/      (only once that service exists)
+https://api.childnest.co.uk/graphql/
+https://dashboard.childnest.co.uk/
+https://shop.childnest.co.uk/          (only once storefront exists)
+https://store-fe.childnest.co.uk/      (only once that service exists)
 ```
 
 ## 3. Domains & services mapping
@@ -88,24 +88,27 @@ https://store-fe.childnest.co.uk:8443/      (only once that service exists)
 |---|---|---|
 | `api.childnest.co.uk` | `api` (container 8000) | **Configured** |
 | `dashboard.childnest.co.uk` | `dashboard` (container 80) | **Configured** |
-| `shop.childnest.co.uk` | Paper storefront (future image) | cert only; routing prepared (commented) |
-| `store-fe.childnest.co.uk` | ??? — see below | cert only; no routing |
+| `shop.childnest.co.uk` | Paper storefront (future) | cert only; out of scope this phase |
+| `store-fe.childnest.co.uk` | unassigned (out of scope) | cert only; no routing |
 
-### `store-fe.childnest.co.uk` — needs your input
+> Storefront work (Paper integration and the `store-fe` question) is
+> **explicitly out of scope for this task** — a separate follow-up after the
+> backend works. No storefront service/image exists here, and neither
+> storefront domain is included in the production ACME domains list. The
+> local mkcert certificate already covers all four domains, so no cert work
+> is needed later.
+
+### `store-fe.childnest.co.uk` — open question for the storefront task
 There is **no service in any repo here that corresponds to `store-fe`**:
 the only storefront is `storefront-paper` (Next.js, port 3000), and the
-other running services are Medusa/Strapi (separate project). I did not
-invent a route for it. Two sensible readings:
+other running services are Medusa/Strapi (separate project). It is
+**not routed in this phase**. When the storefront task starts, decide
+whether it is a reserved alias for the Paper storefront (second `||` host
+in the same future router) or a second frontend (older comments in the
+monorepo reference a `medusa_storefront`).
 
-1. It is a **reserved alias** for the Paper storefront (in which case I can
-   add a second rule `Host(\`shop...\`) || Host(\`store-fe...\`)` to the same
-   future router), or
-2. It is a **second frontend** (e.g. the Medusa-style `medusa_storefront`
-   referenced in old comments) that will get its own service/image later.
-
-**Decision needed from you:** which frontend is `store-fe.childnest.co.uk`
-for? Until then it has a valid certificate but no backing service (requests
-will 404 in Traefik).
+The next subsection is **reference documentation for that future task**
+only — nothing in it is implemented in this phase.
 
 ### Paper storefront — how it will connect (when its image is ready)
 `storefront-paper` today `build:`s its own image (tag `saleor-storefront`);
@@ -125,11 +128,11 @@ add a `storefront` service on `saleor-proxy-net`/`saleor-backend-tier`
 exposing 3000, then uncomment the routing block in
 `docker-compose.traefik.local.yml` (and mirror it in the prod overlay).
 
-> **Two builds are required** (local vs production) because the public API
-> URL is compiled into the client bundle: local builds bake
-> `https://api.childnest.co.uk:8443/graphql/`, production builds bake
-> `https://api.childnest.co.uk/graphql/`. A runtime env var cannot change a
-> compiled `NEXT_PUBLIC_*` value.
+> Because local now uses plain 80/443 and the public domain has no port,
+> the API URL that the storefront bakes in is **identical for local and
+> production** (`https://api.childnest.co.uk/graphql/`), so a single build
+> can serve both — as long as the local hosts file points the domain at
+> 127.0.0.1.
 
 ## 4. Traefik → Docker provider on Docker Desktop (the one workaround)
 
@@ -186,8 +189,9 @@ Key Saleor production settings handled:
 - `RSA_PRIVATE_KEY` — supplied via `RSA_PRIVATE_KEY_FILE=/app/saleor_rsa.pem`
   (PEM bind-mounted `:ro` from git-ignored `.secrets/saleor_rsa.pem`), same
   file for api **and** worker so worker-signed app JWTs validate on api.
-- `ALLOWED_HOSTS` / `ALLOWED_CLIENT_HOSTS` / `CSRF_TRUSTED_ORIGINS` — per
-  mode (local includes `:8443` hosts and legacy localhost dev URLs).
+- `ALLOWED_HOSTS` / `ALLOWED_CLIENT_HOSTS` / `CSRF_TRUSTED_ORIGINS` — the
+  plain https domains in both modes (no port anywhere); plus the legacy
+  `http://localhost:9001/8001` dev origins in the local sample.
 - `DEBUG` — Saleor 3.23 has no DEBUG setting; the production posture comes
   from real secrets + `ALLOWED_CLIENT_HOSTS` set + `HTTP_IP_FILTER_ENABLED`.
 - `HTTP_IP_FILTER_*` — local: `False`/loopback allowed (keeps local app dev
@@ -195,7 +199,8 @@ Key Saleor production settings handled:
 - DB/cache/email: external Postgres via `postgres-net` (`postgres` host),
   internal Valkey (`cache:6379`), Mailpit (`mailpit:1025`) — none reachable
   from outside the Docker networks.
-- URLs per mode exactly as specified (local URLs carry `:8443`).
+- URLs per mode exactly as specified (local URLs now carry **no port**,
+  same form as production: `https://api.childnest.co.uk/…`).
 
 ## 6. What is deliberately NOT exposed
 
@@ -227,7 +232,7 @@ Key Saleor production settings handled:
 | Local stack config | `+ -f docker-compose.traefik.local.yml` | OK |
 | Prod stack config | `--env-file env/prod.env.example -f … -f … .prod.yml` | OK |
 | Required-var enforcement | env file without `SALEOR_SECRET_KEY` | fails with clear message |
-| Local published ports | `config` grep | only 127.0.0.1:8080/8443 + loopback Jaeger |
+| Local published ports | `config` grep | only 127.0.0.1:80/443 + loopback Jaeger |
 | Prod published ports | `config` grep | only 80, 443 |
 | API/worker image consistency | `config` grep | both `admincareout/kidl:saleor-api-1.0` |
 | Celery command preserved | diff of `command:` lines | byte-identical incl. scheduler |
@@ -238,9 +243,100 @@ Key Saleor production settings handled:
 | Keys git-ignored | `git check-ignore` | `.pem` + key + `.env` + `.secrets/` all ignored |
 | Root CA key untouched | `ls %LOCALAPPDATA%\mkcert` | still outside repo, never copied |
 | Engine reachability (for bridge) | throwaway container → `host.docker.internal:23750` → `GET /_ping` | 200 |
+| Ports 80/443 free on host (before binding) | `netstat` | nothing listening; no container published them |
+
+Follow-up revalidation (after switching local mode to 127.0.0.1:80/443 and
+removing the storefront domains from the prod ACME `domains:` list):
+both compose combinations re-parsed OK; local published ports are exactly
+127.0.0.1:80/443 (+ loopback Jaeger), prod exactly 80/443; ACME requests
+api + dashboard only.
 
 All `docker compose` commands above used `config` only — no `up/down/
 restart/create`.
+
+## 8. Manual runbook — RSA key, database test, local start
+
+Nothing here was executed in the configuration task; these are the exact
+commands to run when you are ready to start the platform.
+
+### 8.1 RSA private key (PowerShell, from the repo root)
+
+Required: 2048-bit RSA, PKCS#8 PEM (the `BEGIN PRIVATE KEY` header that
+`openssl genpkey` produces). File location: `.secrets/saleor_rsa.pem`
+(git-ignored). **Do not display the key contents.**
+
+```powershell
+# (1) check openssl is available (Git for Windows provides it; if the
+#     first command is empty, install Git/openssl first)
+Get-Command openssl
+
+# (2) generate the key (2048-bit RSA, PKCS#8 PEM)
+New-Item -ItemType Directory -Force .secrets | Out-Null
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 `
+    -out .secrets/saleor_rsa.pem
+
+# (3) verify: key is parseable + 2048 bits + header is PKCS#8
+& openssl pkey -in .secrets/saleor_rsa.pem -noout -text |
+    Select-Object -First 2          # expect: "Private-Key: (2048 bit,
+#                                            2 primes)"
+Get-Content .secrets/saleor_rsa.pem -TotalCount 1
+                                # expect: "-----BEGIN PRIVATE KEY-----"
+```
+
+Both the **api** and the **worker** services bind-mount this exact file
+read-only (`./.secrets/saleor_rsa.pem:/app/saleor_rsa.pem:ro`) and point
+`RSA_PRIVATE_KEY_FILE=/app/saleor_rsa.pem` at it — verified in the composed
+config, so tokens signed by the worker validate at the API.
+
+### 8.2 PostgreSQL read-only connectivity test (manual, later)
+
+No migration is run. From the host (uses a disposable `postgres:18` client
+container with the same network + credentials the stack uses):
+
+```bash
+docker run --rm --network saleor-backend-tier \
+  -e PGHOST=postgres -e PGUSER=saleor -e PGPASSWORD=saleor -e PGDATABASE=saleor \
+  postgres:18-alpine psql -tAc "SELECT version(); SELECT count(*) FROM information_schema.tables WHERE table_schema='public';"
+```
+
+Assumptions encoded in the stack: host `postgres`, db `saleor`,
+user `saleor`/`saleor` (per the still-running, working dev stack — do not
+change these without checking where the external `infrastructure-postgres`
+project lives).
+
+### 8.3 Exact sequence to start the LOCAL platform later
+
+```bash
+# 0. (Windows editor as admin) add to C:\Windows\System32\drivers\etc\hosts:
+#    127.0.0.1 api.childnest.co.uk
+#    127.0.0.1 dashboard.childnest.co.uk
+#    127.0.0.1 store-fe.childnest.co.uk   # optional; cert covers it
+#    127.0.0.1 shop.childnest.co.uk        # optional; cert covers it
+#    127.0.0.1 traefik.childnest.co.uk     # optional; traefik dashboard
+
+# 1. env + key (once): see §8.1
+Copy-Item env\local.env.example .env   # then edit .env (secrets!)
+
+# 2. Docker Engine API bridge for the traefik docker provider (WSL),
+#    in a separate terminal — must stay running while traefik runs:
+wsl -d Ubuntu-26.04 -- python3 \
+  C:/imran/projects/saleor-ecommerce/saleor-platform/traefik/host-services/dockerd-socket-tcp-bridge.py
+
+# 3. start (bash or pwsh from repo root)
+docker compose --env-file .env \
+  -f docker-compose.prod.yml \
+  -f docker-compose.traefik.local.yml up -d
+
+# 4. test
+curl -sS https://api.childnest.co.uk/graphql/ -d '{"query":"{ version { version displayName } }"}'
+curl -sSI  https://dashboard.childnest.co.uk/ | Select-String -Pattern "^HTTP|^strict-transport"
+# browser: https://dashboard.childnest.co.uk/ (login with Saleor admin creds)
+
+# 5. stop (bridge too)
+docker compose --env-file .env -f docker-compose.prod.yml \
+  -f docker-compose.traefik.local.yml down --remove-orphans
+wsl -d Ubuntu-26.04 -- pkill -f dockerd-socket-tcp-bridge.py
+```
 
 ## 8. Extracting Traefik to its own repo later
 
@@ -267,12 +363,13 @@ extraction is mechanical:
 
 ## 9. Outstanding decisions / notes
 
-1. `store-fe.childnest.co.uk` purpose (section 3) — needs your answer.
+1. `store-fe.childnest.co.uk` purpose — decision belongs to the **future
+   storefront task** (section 3); nothing in this phase depends on it.
 2. `DEFAULT_FROM_EMAIL` / real SMTP provider for production (Mailpit is a
    temporary sink; production needs a real `EMAIL_URL`).
 3. App installs under the domain setup: the Dummy Payment App manifest URL
    and `APP_IFRAME_BASE_URL` are `localhost`-based; under
-   `https://dashboard.childnest.co.uk:8443` the iframe app URL will need
+   `https://dashboard.childnest.co.uk` the iframe app URL will need
    review (localhost app from a domain origin is a mixed/CSRF boundary).
    The dev stack (unchanged) remains the place for local app development
    until this is sorted.

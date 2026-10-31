@@ -47,6 +47,10 @@ providers:
     endpoint: "unix:///var/run/docker.sock"
     exposedByDefault: false
     network: saleor-proxy-net
+  # pi-lens-ignore: yaml-schema
+  # (LSP validates with a Traefik v2 schema; the pinned traefik:3.7.17
+  #  uses providers.acme - v2 put it top-level. See docs §7.)
+  # pi-lens-ignore: yaml-schema
   acme:
     # Email supplied via CLI flag (see compose overlay).
     # Persistent storage (named volume `traefik-le` in compose).
@@ -59,12 +63,12 @@ providers:
     caServer: "https://acme-v02.api.letsencrypt.org/directory"
     httpChallenge:
       entryPoint: web
-    # Explicit requested certificates. With `domains`, Traefik requests the
-    # certificate on start (then renews proactively) instead of on first
-    # request, so a missing domain fails fast at startup and is visible in
-    # the dashboard/logs.
+    # Explicit requested certificates. ONLY the two currently existing
+    # storefront-free services are requested: api + dashboard. Storefront
+    # domains are intentionally NOT requested so Traefik does not try to
+    # issue certs for services that don't exist yet (ACME would still work
+    # via HTTP-01 on the web entrypoint, but we keep requests minimal and
+    # predictable). Add shop./store-fe. here when those services land.
     domains:
-      - main: shop.childnest.co.uk
-      - main: dashboard.childnest.co.uk
       - main: api.childnest.co.uk
-      - main: store-fe.childnest.co.uk
+      - main: dashboard.childnest.co.uk
