@@ -237,7 +237,7 @@ Key Saleor production settings handled:
 | API/worker image consistency | `config` grep | both `admincareout/kidl:saleor-api-1.0` |
 | Celery command preserved | diff of `command:` lines | byte-identical incl. scheduler |
 | No postgres service | `grep -i postgres compose files` | none |
-| Valkey/mailpit/jaeger unpublishered | `config` grep | no published ports (jaeger: loopback local only) |
+| Valkey/mailpit/jaeger not published | `config` grep | no non-loopback app ports (jaeger: loopback local only) |
 | Cert covers 4 domains | `openssl x509 -ext subjectAltName` | all 4 SANs present |
 | Key matches cert | public-key hash compare | MATCH |
 | Keys git-ignored | `git check-ignore` | `.pem` + key + `.env` + `.secrets/` all ignored |
