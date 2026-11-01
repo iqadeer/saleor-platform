@@ -1,0 +1,13 @@
+http:
+  routers:
+    saleor-dashboard:
+      rule: "Host(`dashboard.childnest.co.uk`)"
+      entryPoints:
+        - web
+      service: saleor-dashboard
+
+  services:
+    saleor-dashboard:
+      loadBalancer:
+        servers:
+          - url: "http://dashboard:80"

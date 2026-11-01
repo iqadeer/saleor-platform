@@ -159,6 +159,7 @@ services:
       - "4317:4317"
       - "4318:4318"
     networks:
+      - saleor-proxy-net
       - saleor-backend-tier
     volumes:
       - type: tmpfs
@@ -174,6 +175,7 @@ services:
       - 8025:8025 # web ui. Visit http://localhost:8025/ to check emails
     restart: unless-stopped
     networks:
+      - saleor-proxy-net
       - saleor-backend-tier
 
 volumes:
