@@ -50,36 +50,17 @@ services:
       - saleor-media:/app/media      # shared media volume (worker + api)
     env_file:
       - .secrets/private_key.env
+      - backend.prod.env
+      - common.prod.env
     environment:
-      # --- secrets (from .env; required) ---
-      - SECRET_KEY=${SALEOR_SECRET_KEY:?set in .env}
-      # Saleor reads the RSA key from a file (avoids PEM in process env).
-      - DATABASE_URL=${DATABASE_URL:?set in .env}
-      # --- cache / message broker (Valkey, internal network only) ---
-      - CACHE_URL=${CACHE_URL:-redis://cache:6379/0}
-      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://cache:6379/1}
-      # --- public URLs (mode-specific, from .env) ---
-      # worker MUST see the identical value (get_domain() prefers PUBLIC_URL;
-      # celery tasks build app-install URLs and sign app JWTs from it).
-      - PUBLIC_URL=${PUBLIC_URL:?see env/*.env.example}
-      - DASHBOARD_URL=${DASHBOARD_URL:?see env/*.env.example}
-      # --- host / client allowlists (from .env; mode-specific) ---
-      - ALLOWED_HOSTS=${SALEOR_ALLOWED_HOSTS:?see env/*.env.example}
-      - ALLOWED_CLIENT_HOSTS=${SALEOR_ALLOWED_CLIENT_HOSTS:?set in .env}
-      - CSRF_TRUSTED_ORIGINS=${SALEOR_CSRF_TRUSTED_ORIGINS:-}
-      # --- outgoing mail (Mailpit; internal only) ---
-      - EMAIL_URL=${EMAIL_URL:-smtp://mailpit:1025}
-      - DEFAULT_FROM_EMAIL=${DEFAULT_FROM_EMAIL:?set in .env}
-      # --- tracing (temporary Jaeger) ---
-      # OTel endpoint defaults to http://jaeger:4317 via env/*.env.example
-      - OTEL_SERVICE_NAME=saleor
-      - OTEL_TRACES_EXPORTER=${OTEL_TRACES_EXPORTER:-otlp}
-      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
-      # HTTP_IP_FILTER: True is the recommended production value; the local
-      # example sets False for local app development (see dev common.env).
-      - HTTP_IP_FILTER_ENABLED=${HTTP_IP_FILTER_ENABLED:-True}
-      - HTTP_IP_FILTER_ALLOW_LOOPBACK_IPS=${HTTP_IP_FILTER_ALLOW_LOOPBACK_IPS}
-      - DEBUG=${DEBUG:-False}
+    # Public URLs
+    - PUBLIC_URL=${PUBLIC_URL:?see .env}
+    - DASHBOARD_URL=${DASHBOARD_URL:?see .env}
+
+    # Host and browser origin allowlists
+    - ALLOWED_HOSTS=${SALEOR_ALLOWED_HOSTS:?set in .env}
+    - ALLOWED_CLIENT_HOSTS=${SALEOR_ALLOWED_CLIENT_HOSTS:?set in .env}
+    - CSRF_TRUSTED_ORIGINS=${SALEOR_CSRF_TRUSTED_ORIGINS:-}
     healthcheck:
       test:
         - CMD-SHELL
@@ -128,24 +109,14 @@ services:
       - .secrets/private_key.env
 
     environment:
-      - SECRET_KEY=${SALEOR_SECRET_KEY:?set in .env}
-      - DATABASE_URL=${DATABASE_URL:?set in .env}
-      - CACHE_URL=${CACHE_URL:-redis://cache:6379/0}
-      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://cache:6379/1}
-      # MUST match api exactly (see note on the api service above).
-      - PUBLIC_URL=${PUBLIC_URL:?see env/*.env.example}
-      - ALLOWED_HOSTS=${SALEOR_ALLOWED_HOSTS:?see env/*.env.example}
-      - ALLOWED_CLIENT_HOSTS=${SALEOR_ALLOWED_CLIENT_HOSTS:?set in .env}
-      - CSRF_TRUSTED_ORIGINS=${SALEOR_CSRF_TRUSTED_ORIGINS:-}
-      - EMAIL_URL=${EMAIL_URL:-smtp://mailpit:1025}
-      - DEFAULT_FROM_EMAIL=${DEFAULT_FROM_EMAIL:?set in .env}
-      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME_WORKER:-saleor-worker}
-      - OTEL_TRACES_EXPORTER=${OTEL_TRACES_EXPORTER:-otlp}
-      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
-      - HTTP_IP_FILTER_ENABLED=${HTTP_IP_FILTER_ENABLED:-True}
-      - HTTP_IP_FILTER_ALLOW_LOOPBACK_IPS=${HTTP_IP_FILTER_ALLOW_LOOPBACK_IPS}
-      - DEBUG=${DEBUG:-False}
-    # No healthcheck: celery beat has no HTTP probe; observe in logs.
+    # Must match API exactly
+    - PUBLIC_URL=${PUBLIC_URL:?see .env}
+    - ALLOWED_HOSTS=${SALEOR_ALLOWED_HOSTS:?set in .env}
+    - ALLOWED_CLIENT_HOSTS=${SALEOR_ALLOWED_CLIENT_HOSTS:?set in .env}
+    - CSRF_TRUSTED_ORIGINS=${SALEOR_CSRF_TRUSTED_ORIGINS:-}
+
+    # Worker-specific tracing service name
+    - OTEL_SERVICE_NAME=saleor-worker
     volumes:
       - saleor-media:/app/media
     depends_on:
