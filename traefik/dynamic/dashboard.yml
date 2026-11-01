@@ -6,8 +6,41 @@ http:
         - web
       service: saleor-dashboard
 
+    saleor-api:
+      rule: "Host(`api.childnest.co.uk`)"
+      entryPoints:
+        - web
+      service: saleor-api
+
+    saleor-mailpit:
+      rule: "Host(`mailpit.childnest.co.uk`)"
+      entryPoints:
+        - web
+      service: saleor-mailpit
+
+    saleor-jaeger:
+      rule: "Host(`jaeger.childnest.co.uk`)"
+      entryPoints:
+        - web
+      service: saleor-jaeger
+
   services:
     saleor-dashboard:
       loadBalancer:
         servers:
           - url: "http://dashboard:80"
+
+    saleor-api:
+      loadBalancer:
+        servers:
+          - url: "http://api:8000"
+
+    saleor-mailpit:
+      loadBalancer:
+        servers:
+          - url: "http://mailpit:8025"
+
+    saleor-jaeger:
+      loadBalancer:
+        servers:
+          - url: "http://jaeger:16686"
