@@ -49,9 +49,9 @@ services:
     volumes:
       - saleor-media:/app/media      # shared media volume (worker + api)
     env_file:
-      - .secrets/private_key.env
       - backend.prod.env
       - common.prod.env
+      - .secrets/private_key.env
     environment:
     # Public URLs
     - PUBLIC_URL=${PUBLIC_URL:?see .env}
@@ -92,7 +92,8 @@ services:
       - saleor-backend-tier
     depends_on:
       - api
-
+    volumes:
+      - saleor-media:/app/media:ro
   # Worker: image and command MUST stay identical to the working setup.
   # The patched beat scheduler flag is required (saleor/saleor#10185,#15892).
   worker:
@@ -106,6 +107,8 @@ services:
       - postgres-net
 
     env_file:
+      - backend.prod.env
+      - common.prod.env
       - .secrets/private_key.env
 
     environment:
