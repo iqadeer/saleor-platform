@@ -48,13 +48,12 @@ services:
     tty: true
     volumes:
       - saleor-media:/app/media      # shared media volume (worker + api)
-      # RSA signing key: place the PEM at .secrets/saleor_rsa.pem (gitignored)
-      - ./.secrets/saleor_rsa.pem:/app/saleor_rsa.pem:ro
+    env_file:
+      - .secrets/private_key.env
     environment:
       # --- secrets (from .env; required) ---
       - SECRET_KEY=${SALEOR_SECRET_KEY:?set in .env}
       # Saleor reads the RSA key from a file (avoids PEM in process env).
-      - RSA_PRIVATE_KEY_FILE=/app/saleor_rsa.pem
       - DATABASE_URL=${DATABASE_URL:?set in .env}
       # --- cache / message broker (Valkey, internal network only) ---
       - CACHE_URL=${CACHE_URL:-redis://cache:6379/0}
@@ -80,6 +79,7 @@ services:
       # example sets False for local app development (see dev common.env).
       - HTTP_IP_FILTER_ENABLED=${HTTP_IP_FILTER_ENABLED:-True}
       - HTTP_IP_FILTER_ALLOW_LOOPBACK_IPS=${HTTP_IP_FILTER_ALLOW_LOOPBACK_IPS}
+      - DEBUG=${DEBUG:-False}
     healthcheck:
       test:
         - CMD-SHELL
@@ -123,9 +123,12 @@ services:
       - saleor-proxy-net
       - saleor-backend-tier
       - postgres-net
+
+    env_file:
+      - .secrets/private_key.env
+
     environment:
       - SECRET_KEY=${SALEOR_SECRET_KEY:?set in .env}
-      - RSA_PRIVATE_KEY_FILE=/app/saleor_rsa.pem
       - DATABASE_URL=${DATABASE_URL:?set in .env}
       - CACHE_URL=${CACHE_URL:-redis://cache:6379/0}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://cache:6379/1}
@@ -141,10 +144,10 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       - HTTP_IP_FILTER_ENABLED=${HTTP_IP_FILTER_ENABLED:-True}
       - HTTP_IP_FILTER_ALLOW_LOOPBACK_IPS=${HTTP_IP_FILTER_ALLOW_LOOPBACK_IPS}
+      - DEBUG=${DEBUG:-False}
     # No healthcheck: celery beat has no HTTP probe; observe in logs.
     volumes:
       - saleor-media:/app/media
-      - ./.secrets/saleor_rsa.pem:/app/saleor_rsa.pem:ro
     depends_on:
       cache:
         condition: service_healthy
